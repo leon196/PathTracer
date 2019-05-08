@@ -7,18 +7,21 @@ package main // import "github.com/go-gl/example/gl41core-cube"
 
 import (
 	"fmt"
-	"go/build"
 	"image"
 	"image/draw"
 	_ "image/png"
+	"io/ioutil"
 	"log"
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.2/glfw"
 	"github.com/go-gl/mathgl/mgl32"
+
+	"leon"
 )
 
 const windowWidth = 800
@@ -30,10 +33,22 @@ func init() {
 }
 
 func main() {
+
 	if err := glfw.Init(); err != nil {
 		log.Fatalln("failed to initialize glfw:", err)
 	}
 	defer glfw.Terminate()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	go func() {
+		for t := range ticker.C {
+			fmt.Println("Yo!", t)
+		}
+	}()
+
+	dat, err := ioutil.ReadFile("./cube.vert")
+	engine.Check(err)
+	var vertexShader = string(dat)
 
 	glfw.WindowHint(glfw.Resizable, glfw.False)
 	glfw.WindowHint(glfw.ContextVersionMajor, 4)
@@ -41,9 +56,7 @@ func main() {
 	glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
 	glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
 	window, err := glfw.CreateWindow(windowWidth, windowHeight, "Cube", nil, nil)
-	if err != nil {
-		panic(err)
-	}
+	engine.Check(err)
 	window.MakeContextCurrent()
 
 	// Initialize Glow
@@ -56,9 +69,7 @@ func main() {
 
 	// Configure the vertex and fragment shaders
 	program, err := newProgram(vertexShader, fragmentShader)
-	if err != nil {
-		panic(err)
-	}
+	engine.Check(err)
 
 	gl.UseProgram(program)
 
@@ -76,6 +87,9 @@ func main() {
 
 	textureUniform := gl.GetUniformLocation(program, gl.Str("tex\x00"))
 	gl.Uniform1i(textureUniform, 0)
+
+	timeUniform := gl.GetUniformLocation(program, gl.Str("time\x00"))
+	gl.Uniform1f(timeUniform, 0)
 
 	gl.BindFragDataLocation(program, 0, gl.Str("outputColor\x00"))
 
@@ -125,6 +139,7 @@ func main() {
 		// Render
 		gl.UseProgram(program)
 		gl.UniformMatrix4fv(modelUniform, 1, false, &model[0])
+		gl.Uniform1f(timeUniform, float32(time))
 
 		gl.BindVertexArray(vao)
 
@@ -137,6 +152,8 @@ func main() {
 		window.SwapBuffers()
 		glfw.PollEvents()
 	}
+
+	ticker.Stop()
 }
 
 func newProgram(vertexShaderSource, fragmentShaderSource string) (uint32, error) {
@@ -235,19 +252,22 @@ func newTexture(file string) (uint32, error) {
 	return texture, nil
 }
 
-var vertexShader = `
+/*
+	`
 #version 330
 uniform mat4 projection;
 uniform mat4 camera;
 uniform mat4 model;
+uniform float time;
 in vec3 vert;
 in vec2 vertTexCoord;
 out vec2 fragTexCoord;
 void main() {
     fragTexCoord = vertTexCoord;
-    gl_Position = projection * camera * model * vec4(vert, 1);
+    gl_Position = projection * camera * model * vec4(vert + vec3(0,sin(time*10.),0), 1);
 }
 ` + "\x00"
+*/
 
 var fragmentShader = `
 #version 330
@@ -255,7 +275,7 @@ uniform sampler2D tex;
 in vec2 fragTexCoord;
 out vec4 outputColor;
 void main() {
-    outputColor = texture(tex, fragTexCoord);
+    outputColor = 1.0-texture(tex, fragTexCoord);
 }
 ` + "\x00"
 
@@ -308,27 +328,4 @@ var cubeVertices = []float32{
 	1.0, -1.0, 1.0, 1.0, 1.0,
 	1.0, 1.0, -1.0, 0.0, 0.0,
 	1.0, 1.0, 1.0, 0.0, 1.0,
-}
-
-// Set the working directory to the root of Go package, so that its assets can be accessed.
-func init() {
-	dir, err := importPathToDir("github.com/go-gl/example/gl41core-cube")
-	if err != nil {
-		log.Fatalln("Unable to find Go package in your GOPATH, it's needed to load assets:", err)
-	}
-	err = os.Chdir(dir)
-	if err != nil {
-		log.Panicln("os.Chdir:", err)
-	}
-}
-
-// importPathToDir resolves the absolute path from importPath.
-// There doesn't need to be a valid Go package inside that import path,
-// but the directory must exist.
-func importPathToDir(importPath string) (string, error) {
-	p, err := build.Import(importPath, "", build.FindOnly)
-	if err != nil {
-		return "", err
-	}
-	return p.Dir, nil
 }
